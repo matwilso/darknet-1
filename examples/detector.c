@@ -1,6 +1,24 @@
 #include "darknet.h"
+#include "image.h"
 
 static int coco_ids[] = {1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,19,20,21,22,23,24,25,27,28,31,32,33,34,35,36,37,38,39,40,41,42,43,44,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,67,70,72,73,74,75,76,77,78,79,80,81,82,84,85,86,87,88,89,90};
+
+list *ros_options;
+char *ros_name_list;
+char **ros_names; 
+image **ros_alphabet;
+network ros_net; 
+clock_t ros_time;
+char ros_buff[256];
+char *ros_input; 
+char *ros_filename;
+char *ros_outfile;
+int ros_fullscreen;
+float ros_nms;
+float ros_thresh;
+float ros_hier_thresh;
+
+
 
 void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, int ngpus, int clear)
 {
@@ -23,7 +41,7 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
         cuda_set_device(gpus[i]);
 #endif
         nets[i] = load_network(cfgfile, weightfile, clear);
-        nets[i].learning_rate *= ngpus;
+	nets[i].learning_rate *= ngpus;
     }
     srand(time(0));
     network net = nets[0];
@@ -576,6 +594,85 @@ void validate_detector_recall(char *cfgfile, char *weightfile)
     }
 }
 
+
+// Author: Matthew Wilson
+// Initalize the variable and build the neural net
+void ros_init_detector(char *datacfg, char *cfgfile, char *weightfile, char *filename, float thresh, float hier_thresh, char *outfile, int fullscreen)
+{
+    ros_filename = filename;
+    ros_outfile = outfile;
+    ros_options = read_data_cfg(datacfg);
+    ros_name_list = option_find_str(ros_options, "names", "data/names.list");
+    ros_names = get_labels(ros_name_list);
+
+    ros_alphabet = load_alphabet();
+    ros_net = parse_network_cfg(cfgfile);
+    if(weightfile){
+        load_weights(&ros_net, weightfile);
+    }
+    set_batch_network(&ros_net, 1);
+    srand(2222222);
+    ros_input = ros_buff;
+    ros_nms=.4;
+
+    ros_thresh = thresh;
+    ros_hier_thresh = hier_thresh;
+    ros_fullscreen = fullscreen;
+}
+
+// Author: Matthew Wilson
+// Run the neural net on the given image, or file passed to the init
+ros_data ros_run_detector(IplImage *disp) {
+    ros_data rdata;
+    char buff[256];
+    char *input = buff;
+    image im = convert_ipl(disp);
+
+    image sized = letterbox_image(im, ros_net.w, ros_net.h);
+
+    layer l = ros_net.layers[ros_net.n-1];
+    
+    box *boxes = calloc(l.w*l.h*l.n, sizeof(box));
+    float **probs = calloc(l.w*l.h*l.n, sizeof(float *));
+    int j;
+    for(j = 0; j < l.w*l.h*l.n; ++j) probs[j] = calloc(l.classes + 1, sizeof(float *));
+    
+    float *X = sized.data;
+    ros_time=clock();
+    network_predict(ros_net, X);
+    printf("%s: Predicted in %f seconds.\n", input, sec(clock()-ros_time));
+    get_region_boxes(l, im.w, im.h, ros_net.w, ros_net.h, ros_thresh, probs, boxes, 0, 0, ros_hier_thresh, 1);
+    if (ros_nms) do_nms_obj(boxes, probs, l.w*l.h*l.n, l.classes, ros_nms);
+
+    rdata = draw_detections(im, l.w*l.h*l.n, ros_thresh, boxes, probs, ros_names, ros_alphabet, l.classes);
+    image copy = copy_image(im);
+    if(im.c == 3) rgbgr_image(copy);
+    int x,y,k;
+
+    rdata.ipl_image = cvCreateImage(cvSize(im.w,im.h), IPL_DEPTH_8U, im.c);
+    int step = rdata.ipl_image->widthStep;
+    for(y = 0; y < im.h; ++y){
+        for(x = 0; x < im.w; ++x){
+            for(k= 0; k < im.c; ++k){
+                rdata.ipl_image->imageData[y*step + x*im.c + k] = (unsigned char)(get_pixel(copy,x,y,k)*255);
+            }
+        }
+    }
+
+    free_image(copy);
+    
+    free_image(im);
+    free_image(sized);
+    free(boxes);
+    free_ptrs((void **)probs, l.w*l.h*l.n);
+
+    return rdata;
+}
+
+
+ 
+
+
 void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filename, float thresh, float hier_thresh, char *outfile, int fullscreen)
 {
     list *options = read_data_cfg(datacfg);
@@ -598,6 +695,7 @@ void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filenam
         if(filename){
             strncpy(input, filename, 256);
         } else {
+            //HERE
             printf("Enter Image Path: ");
             fflush(stdout);
             input = fgets(input, 256, stdin);
@@ -623,6 +721,7 @@ void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filenam
         get_region_boxes(l, im.w, im.h, net.w, net.h, thresh, probs, boxes, 0, 0, hier_thresh, 1);
         if (nms) do_nms_obj(boxes, probs, l.w*l.h*l.n, l.classes, nms);
         //else if (nms) do_nms_sort(boxes, probs, l.w*l.h*l.n, l.classes, nms);
+
         draw_detections(im, l.w*l.h*l.n, thresh, boxes, probs, names, alphabet, l.classes);
         if(outfile){
             save_image(im, outfile);
@@ -695,6 +794,7 @@ void run_detector(int argc, char **argv)
     char *weights = (argc > 5) ? argv[5] : 0;
     char *filename = (argc > 6) ? argv[6]: 0;
     if(0==strcmp(argv[2], "test")) test_detector(datacfg, cfg, weights, filename, thresh, hier_thresh, outfile, fullscreen);
+    else if(0==strcmp(argv[2], "ros")) ros_init_detector(datacfg, cfg, weights, filename, thresh, hier_thresh, outfile, fullscreen);
     else if(0==strcmp(argv[2], "train")) train_detector(datacfg, cfg, weights, gpus, ngpus, clear);
     else if(0==strcmp(argv[2], "valid")) validate_detector(datacfg, cfg, weights, outfile);
     else if(0==strcmp(argv[2], "valid2")) validate_detector_flip(datacfg, cfg, weights, outfile);

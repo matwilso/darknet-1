@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <pthread.h>
+#include "opencv2/core/types_c.h"
 
 #define SECRET_NUM -1234
 extern int gpu_index;
@@ -545,9 +546,24 @@ typedef struct load_args{
 
 typedef struct{
     int id;
-    float x,y,w,h;
+    float x, y, w, h;
     float left, right, top, bottom;
 } box_label;
+
+
+typedef struct{
+    char* label;
+    float prob;
+    int cx, cy;
+    int w, h;
+} ros_object;
+
+typedef struct{
+    ros_object objects[32];
+    int num_objects;
+    IplImage *ipl_image;
+} ros_data;
+
 
 
 network load_network(char *cfg, char *weights, int clear);
@@ -647,6 +663,7 @@ void free_network(network net);
 void set_batch_network(network *net, int b);
 image load_image(char *filename, int w, int h, int c);
 image load_image_color(char *filename, int w, int h);
+image convert_ipl(IplImage *src);
 image make_image(int w, int h, int c);
 image resize_image(image im, int w, int h);
 image letterbox_image(image im, int w, int h);
@@ -683,7 +700,7 @@ float box_iou(box a, box b);
 void do_nms(box *boxes, float **probs, int total, int classes, float thresh);
 data load_all_cifar10();
 box_label *read_boxes(char *filename, int *n);
-void draw_detections(image im, int num, float thresh, box *boxes, float **probs, char **names, image **labels, int classes);
+ros_data draw_detections(image im, int num, float thresh, box *boxes, float **probs, char **names, image **labels, int classes);
 
 matrix network_predict_data(network net, data test);
 image **load_alphabet();
@@ -738,5 +755,13 @@ void normalize_array(float *a, int n);
 int *read_intlist(char *s, int *n, int d);
 size_t rand_size_t();
 float rand_normal();
+
+
+//void ros_init_detector(char *datacfg, char *cfgfile, char *weightfile, char *filename, float thresh, float hier_thresh, char *outfile, int fullscreen);
+//ros_data ros_run_detector(IplImage *disp);
+
+void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filename, float thresh, float hier_thresh, char *outfile, int fullscreen);
+
+
 
 #endif

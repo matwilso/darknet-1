@@ -183,16 +183,19 @@ image **load_alphabet()
         alphabets[j] = calloc(128, sizeof(image));
         for(i = 32; i < 127; ++i){
             char buff[256];
-            sprintf(buff, "data/labels/%d_%d.png", i, j);
+            sprintf(buff, "/home/ballbot/catkin_ws/src/yolov2_ros/libs/darknet/data/labels/%d_%d.png", i, j);
             alphabets[j][i] = load_image_color(buff, 0, 0);
         }
     }
     return alphabets;
 }
 
-void draw_detections(image im, int num, float thresh, box *boxes, float **probs, char **names, image **alphabet, int classes)
+ros_data draw_detections(image im, int num, float thresh, box *boxes, float **probs, char **names, image **alphabet, int classes)
 {
+    ros_data rdata;
+    rdata.ipl_image = 0;
     int i;
+    int j = 0;
 
     for(i = 0; i < num; ++i){
         int class = max_index(probs[i], classes);
@@ -207,7 +210,7 @@ void draw_detections(image im, int num, float thresh, box *boxes, float **probs,
             }
 
             //printf("%d %s: %.0f%%\n", i, names[class], prob*100);
-            printf("%s: %.0f%%\n", names[class], prob*100);
+            //printf("%s: %.0f%%\n", names[class], prob*100);
             int offset = class*123457 % classes;
             float red = get_color(2,offset,classes);
             float green = get_color(1,offset,classes);
@@ -231,6 +234,17 @@ void draw_detections(image im, int num, float thresh, box *boxes, float **probs,
             if(top < 0) top = 0;
             if(bot > im.h-1) bot = im.h-1;
 
+
+            int cx = (right+left)/2;
+            int cy = (bot+top)/2;
+            int w = right-left;
+            int h = bot-top;
+
+            ros_object ro = {.label=names[class], .prob=prob, .cx=cx, .cy=cy, .w=w, .h=h};
+            rdata.objects[j++] = ro;
+
+            printf("%s,%f,%d,%d,%d,%d\n", names[class], prob*100, cx, cy, w, h);
+
             draw_box_width(im, left, top, right, bot, width, red, green, blue);
             if (alphabet) {
                 image label = get_label(alphabet, names[class], (im.h*.03)/10);
@@ -239,6 +253,8 @@ void draw_detections(image im, int num, float thresh, box *boxes, float **probs,
             }
         }
     }
+    rdata.num_objects = j;
+    return rdata;
 }
 
 void transpose_image(image im)
@@ -520,8 +536,17 @@ image ipl_to_image(IplImage* src)
     return out;
 }
 
+
+image convert_ipl(IplImage* src)
+{
+    image out = ipl_to_image(src);
+    rgbgr_image(out);
+    return out;
+}
+
 image load_image_cv(char *filename, int channels)
 {
+    //fprintf("filename = %s", filename);
     IplImage* src = 0;
     int flag = -1;
     if (channels == 0) flag = -1;
@@ -590,7 +615,7 @@ void save_image_jpg(image p, const char *name)
             }
         }
     }
-    cvSaveImage(buff, disp,0);
+    cvSaveImage(buff, disp, 0);
     cvReleaseImage(&disp);
     free_image(copy);
 }

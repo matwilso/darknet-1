@@ -10,7 +10,7 @@ class METADATA(Structure):
     _fields_ = [("classes", c_int),
                 ("names", POINTER(c_char_p))]
 
-lib = CDLL("/home/pjreddie/documents/darknet/libdarknet.so", RTLD_GLOBAL)
+lib = CDLL("/home/ballbot/darknet/libdarknet.so", RTLD_GLOBAL)
 lib.network_width.argtypes = [c_void_p]
 lib.network_width.restype = c_int
 lib.network_height.argtypes = [c_void_p]
@@ -62,9 +62,9 @@ def detect(net, meta, im):
     return res
 
 if __name__ == "__main__":
-    net = load_net("cfg/densenet.cfg", "/home/pjreddie/trained/densenet201.weights")
-    im = load_img("data/wolf.jpg")
-    meta = load_meta("cfg/imagenet1k.data")
-    r = classify(net, meta, im)
-    print r[:10]
+    net = load_net("cfg/yolo.cfg", "/home/ballbot/darknet/yolo.weights")
+    im = load_img("benchmark.jpg")
+    meta = load_meta("cfg/coco.data")
+    r = detect(net, meta, im)
+    print r
 
